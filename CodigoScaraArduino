@@ -1,0 +1,118 @@
+#include <Servo.h>
+
+// ---------- Pines Arduino (AJUSTA A TU ROBOT) ----------
+const int SERVO_Q1_PIN = 5;    // Servo base (q1)
+const int SERVO_Q2_PIN = 6;   // Servo codo (q2)
+const int SERVO_D3_PIN = 11;   // Servo/actuador lineal (d3)
+
+// ---------- Objetos Servo ----------
+Servo servo_q1;
+Servo servo_q2;
+Servo servo_d3;
+
+// ---------- Límites articulares (AJUSTA A TU MECÁNICA) ----------
+// Rango de giro articular en GRADOS (del robot, no del servo)
+const float Q1_MIN_DEG = -90.0;
+const float Q1_MAX_DEG =  90.0;
+
+const float Q2_MIN_DEG = -90.0;
+const float Q2_MAX_DEG =  90.0;
+
+// Recorrido vertical d3 en mm (0 = altura mínima)
+const float D3_MIN_MM = 0.0;
+const float D3_MAX_MM = 30.85;   // según tu SCARA (54.30 - 23.45)
+
+// --------- Funciones auxiliares ---------
+float clampFloat(float x, float xmin, float xmax) {
+  if (x < xmin) return xmin;
+  if (x > xmax) return xmax;
+  return x;
+}
+
+// Convierte ángulo ARTICULAR [-90,90] en comando de servo [0,180]
+// Suponemos que q = 0° está en 90° del servo (posición central)
+int jointDegToServoDeg(float q_deg) {
+  float servo_deg = q_deg + 90.0;  // [-90,90] -> [0,180]
+  servo_deg = clampFloat(servo_deg, 0.0, 180.0);
+  return (int)servo_deg;
+}
+
+// Convierte d3 en mm a comando de servo
+// Aquí mapeamos [0, D3_MAX] -> [0, 90] grados del servo (ejemplo)
+int d3mmToServoDeg(float d3_mm) {
+  d3_mm = clampFloat(d3_mm, D3_MIN_MM, D3_MAX_MM);
+  float ratio = (d3_mm - D3_MIN_MM) / (D3_MAX_MM - D3_MIN_MM); // [0,1]
+  float servo_deg = 0.0 + ratio * 90.0;  // de 0° a 90°
+  return (int)servo_deg;
+}
+
+// ---------- Setup ----------
+void setup() {
+  Serial.begin(115200);   // velocidad de comunicación con la PC
+
+  servo_q1.attach(SERVO_Q1_PIN);
+  servo_q2.attach(SERVO_Q2_PIN);
+  servo_d3.attach(SERVO_D3_PIN);
+
+  // Posición inicial "home"
+  servo_q1.write(90);   // q1 = 0°
+  servo_q2.write(90);   // q2 = 0°
+  servo_d3.write(0);    // d3 = mínimo
+
+  Serial.println("SCARA Arduino listo. Formato: q1;q2;d3");
+}
+
+// ---------- Loop principal ----------
+void loop() {
+  // Ver si llegó una línea completa desde serial
+  if (Serial.available()) {
+    String linea = Serial.readStringUntil('\n');
+    linea.trim();
+
+    if (linea.length() > 0) {
+      int idx1 = linea.indexOf(';');
+      int idx2 = linea.indexOf(';', idx1 + 1);
+
+      if (idx1 > 0 && idx2 > idx1) {
+        String s_q1 = linea.substring(0, idx1);
+        String s_q2 = linea.substring(idx1 + 1, idx2);
+        String s_d3 = linea.substring(idx2 + 1);
+
+        float q1_deg = s_q1.toFloat();
+        float q2_deg = s_q2.toFloat();
+        float d3_mm  = s_d3.toFloat();
+
+        // Limitar a rangos físicos
+        q1_deg = clampFloat(q1_deg, Q1_MIN_DEG, Q1_MAX_DEG);
+        q2_deg = clampFloat(q2_deg, Q2_MIN_DEG, Q2_MAX_DEG);
+        d3_mm  = clampFloat(d3_mm,  D3_MIN_MM,  D3_MAX_MM);
+
+        int servo_q1_deg = jointDegToServoDeg(q1_deg);
+        int servo_q2_deg = jointDegToServoDeg(q2_deg);
+        int servo_d3_deg = d3mmToServoDeg(d3_mm);
+
+        // Mover servos
+        servo_q1.write(servo_q1_deg);
+        servo_q2.write(servo_q2_deg);
+        servo_d3.write(servo_d3_deg);
+
+        // Mensaje de depuración
+        Serial.print("Recibido q1=");
+        Serial.print(q1_deg);
+        Serial.print(" q2=");
+        Serial.print(q2_deg);
+        Serial.print(" d3=");
+        Serial.print(d3_mm);
+        Serial.print(" -> servos: ");
+        Serial.print(servo_q1_deg);
+        Serial.print(", ");
+        Serial.print(servo_q2_deg);
+        Serial.print(", ");
+        Serial.println(servo_d3_deg);
+      } else {
+        Serial.print("Linea invalida: ");
+        Serial.println(linea);
+      }
+    }
+  }
+}
